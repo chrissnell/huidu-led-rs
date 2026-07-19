@@ -11,6 +11,6 @@ pub mod result;
 pub mod xml;
 
 pub use envelope::{decode_reply, encode_reply, encode_request, SdkReply, PLACEHOLDER_GUID};
-pub use messages::SdkMessage;
+pub use messages::{SdkMessage, SdkReplyBody};
 pub use method::SdkMethod;
 pub use result::SdkResult;

@@ -1,6 +1,6 @@
 //! `GetDeviceInfo` — hardware and firmware identity, screen geometry.
 
-use super::{parse_int_or, SdkMessage};
+use super::{parse_int_or, SdkMessage, SdkReplyBody};
 use crate::error::ProtoError;
 use crate::sdk::envelope::SdkReply;
 use crate::sdk::method::SdkMethod;
@@ -32,7 +32,7 @@ pub struct DeviceInfo {
     pub screen_rotation: u32,
 }
 
-impl SdkMessage for DeviceInfo {
+impl SdkReplyBody for DeviceInfo {
     const METHOD: SdkMethod = SdkMethod::GetDeviceInfo;
 
     fn write_body(&self, x: &mut XmlWriter) -> Result<(), ProtoError> {

@@ -1,6 +1,6 @@
 //! `GetFiles` / `DeleteFiles` — the device's stored-file table.
 
-use super::{parse_int_or, SdkMessage};
+use super::{parse_int_or, SdkMessage, SdkReplyBody};
 use crate::error::ProtoError;
 use crate::sdk::envelope::SdkReply;
 use crate::sdk::method::SdkMethod;
@@ -35,7 +35,7 @@ pub struct FileList {
     pub files: Vec<FileInfo>,
 }
 
-impl SdkMessage for FileList {
+impl SdkReplyBody for FileList {
     const METHOD: SdkMethod = SdkMethod::GetFiles;
 
     fn write_body(&self, x: &mut XmlWriter) -> Result<(), ProtoError> {

@@ -8,7 +8,7 @@
 
 use crate::error::ProtoError;
 use quick_xml::events::attributes::Attribute;
-use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::{Reader, Writer};
 use std::io::Write;
@@ -64,13 +64,6 @@ impl XmlWriter {
     pub fn close(&mut self, tag: &str) -> Result<&mut Self, ProtoError> {
         self.inner.write_event(Event::End(BytesEnd::new(tag)))?;
         Ok(self)
-    }
-
-    /// Write a text element: `<tag>escaped text</tag>`.
-    pub fn text_el(&mut self, tag: &str, text: &str) -> Result<&mut Self, ProtoError> {
-        self.open(tag, &[])?;
-        self.inner.write_event(Event::Text(BytesText::new(text)))?;
-        self.close(tag)
     }
 
     /// Inject an already well-formed XML fragment verbatim (e.g. a screen tree

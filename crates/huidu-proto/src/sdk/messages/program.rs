@@ -69,8 +69,12 @@ impl ProgramPush {
         self.method
     }
 
-    /// Encode as a request. Unlike the trait default, this honors the instance's
-    /// method so one type serves both `AddProgram` and `UpdateProgram`.
+    /// Encode as a request, honoring the instance's method so one type serves
+    /// both `AddProgram` and `UpdateProgram`.
+    ///
+    /// `ProgramPush` deliberately does *not* implement [`SdkMessage`]: that
+    /// trait's method is a compile-time constant, so a shared impl could only
+    /// name one of the two methods and would silently encode the wrong one.
     pub fn encode(&self, guid: &str) -> Result<bytes::Bytes, ProtoError> {
         crate::sdk::envelope::encode_request(guid, self.method, |x| self.write_screen(x))
     }
@@ -86,25 +90,6 @@ impl ProgramPush {
     pub fn decode(bytes: &[u8]) -> Result<Self, ProtoError> {
         let reply = crate::sdk::envelope::decode_reply(bytes)?;
         reply.check()?;
-        let screen = xml::extract_element(&reply.raw, "screen")?.unwrap_or_default();
-        Ok(Self {
-            method: reply.method,
-            screen,
-        })
-    }
-}
-
-// `SdkMessage` is implemented for uniformity (the getters/clear commands go
-// through it); `ProgramPush::encode`/`decode` are the ones callers use so the
-// per-instance method is preserved.
-impl SdkMessage for ProgramPush {
-    const METHOD: SdkMethod = SdkMethod::AddProgram;
-
-    fn write_body(&self, x: &mut XmlWriter) -> Result<(), ProtoError> {
-        self.write_screen(x)
-    }
-
-    fn parse_body(reply: &SdkReply) -> Result<Self, ProtoError> {
         let screen = xml::extract_element(&reply.raw, "screen")?.unwrap_or_default();
         Ok(Self {
             method: reply.method,
