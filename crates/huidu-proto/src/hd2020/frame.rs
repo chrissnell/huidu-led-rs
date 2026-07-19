@@ -221,6 +221,13 @@ mod tests {
     }
 
     #[test]
+    fn encode_rejects_payload_larger_than_u16() {
+        let frame = Hd2020Frame::new(Hd2020Cmd::RealtimeText, vec![0u8; 65_536]);
+        let err = frame.encode().unwrap_err();
+        assert!(matches!(err, ProtoError::Hd2020(_)));
+    }
+
+    #[test]
     fn decode_reports_bytes_consumed_leaving_trailing_data() {
         let one = Hd2020Frame::new(Hd2020Cmd::Clear, Bytes::new())
             .encode()

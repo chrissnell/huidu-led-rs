@@ -47,11 +47,10 @@ const MISSING_GLYPH: [u8; CELL_HEIGHT] = [
 /// [`CELL_WIDTH`] bits are meaningful; bit `CELL_WIDTH - 1` is the leftmost
 /// column. Characters without a glyph return [`MISSING_GLYPH`].
 pub fn glyph_rows(ch: char) -> [u8; CELL_HEIGHT] {
-    let cp = ch as u32;
-    if !(FIRST_CODEPOINT..=LAST_CODEPOINT).contains(&cp) {
+    if !has_glyph(ch) {
         return MISSING_GLYPH;
     }
-    let start = (cp - FIRST_CODEPOINT) as usize * CELL_HEIGHT;
+    let start = (ch as u32 - FIRST_CODEPOINT) as usize * CELL_HEIGHT;
     let mut rows = [0u8; CELL_HEIGHT];
     rows.copy_from_slice(&FONT[start..start + CELL_HEIGHT]);
     rows

@@ -126,7 +126,8 @@ pub struct TextLayout {
     /// Pixel column the first glyph starts at.
     pub x_offset: usize,
     /// If set, the top pixel row for glyphs. When `None`, glyphs are centered
-    /// vertically in the panel (top-aligned if the panel is shorter than a cell).
+    /// vertically in the panel; a panel shorter than one cell centers the glyph
+    /// so the top and bottom rows are clipped evenly.
     pub y_offset: Option<usize>,
 }
 
@@ -241,5 +242,34 @@ mod tests {
         let p = b.to_payload().unwrap();
         assert_eq!(&p[..4], &[16, 0, 7, 0]);
         assert_eq!(p.len(), 4 + b.stride() * 7);
+    }
+
+    #[test]
+    fn payload_rejects_dimension_larger_than_u16() {
+        // Width past the u16 header field must error, not truncate.
+        let b = MonoBitmap::new(65_536, 1);
+        let err = b.to_payload().unwrap_err();
+        assert!(matches!(err, ProtoError::Hd2020(_)));
+    }
+
+    #[test]
+    fn render_clips_text_past_the_right_edge_without_panic() {
+        // Panel narrower than the text: extra glyphs fall off the right edge and
+        // are dropped, and padding bits past `width` stay zero.
+        let layout = TextLayout {
+            letter_spacing: 1,
+            x_offset: 0,
+            y_offset: Some(0),
+        };
+        let b = render("WIDE", 9, font::CELL_HEIGHT, &layout);
+        assert_eq!(b.stride(), 2); // ceil(9/8)
+                                   // Columns 9..16 are padding — never set by a 9-pixel-wide panel.
+        for y in 0..font::CELL_HEIGHT {
+            for x in 9..16 {
+                assert!(!b.get(x, y));
+            }
+            // The low 7 bits of the second (padding) byte must be clear.
+            assert_eq!(b.as_bytes()[y * 2 + 1] & 0b0111_1111, 0);
+        }
     }
 }

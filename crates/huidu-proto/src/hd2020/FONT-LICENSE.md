@@ -2,9 +2,14 @@
 
 `font5x7.bin` is a hand-authored 5×7 monospace bitmap font covering printable
 ASCII (`0x20`–`0x7E`). It was written from scratch for this crate — see the
-source-of-truth ASCII art in `tools/gen_hd2020_font.py` — and is distributed
-under this crate's license (MIT). No third-party font data is embedded, so there
-is no additional attribution requirement.
+source-of-truth ASCII art in `tools/gen_hd2020_font.py` — and carries no
+third-party font data, so it is distributed under the project's own license with
+no additional attribution requirement.
+
+The project license is the BSD 2-Clause text in the repository root `LICENSE`.
+(Note: `crates/huidu-proto/Cargo.toml` and `README.md` currently declare `MIT` —
+a pre-existing inconsistency with the `LICENSE` file that predates this module
+and should be reconciled project-wide.)
 
 ## Planned swap to the Plan 9 fixed font
 
