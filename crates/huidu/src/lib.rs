@@ -15,16 +15,36 @@
 //! # }
 //! ```
 
+mod commands;
 mod config;
 mod device;
 mod error;
+mod probe;
+mod screen;
 mod transport;
 mod upload;
 
 pub use config::DeviceConfig;
 pub use device::Device;
 pub use error::{Error, ProtocolKind, Result};
+pub use screen::{
+    Area, ClockConfig, Color, Effect, HAlign, Item, PlayControl, Program, Screen, TextConfig,
+    TimeFormat, VAlign,
+};
 pub use upload::UploadProgress;
 
+/// Typed request/reply bodies the command surface accepts and returns, re-exported
+/// so callers never reach into `huidu_proto::sdk::messages`.
+pub use huidu_proto::sdk::messages::boot_logo::BootLogoInfo;
 /// Hardware and firmware identity cached during the handshake.
 pub use huidu_proto::sdk::messages::device_info::DeviceInfo;
+pub use huidu_proto::sdk::messages::files::{FileInfo, FileList};
+pub use huidu_proto::sdk::messages::luminance::{LuminanceInfo, LuminanceItem, LuminanceMode};
+pub use huidu_proto::sdk::messages::network::{EthernetInfo, WifiInfo, WifiMode};
+pub use huidu_proto::sdk::messages::server::ServerInfo;
+pub use huidu_proto::sdk::messages::switch_time::{SwitchTimeInfo, SwitchTimeItem};
+pub use huidu_proto::sdk::messages::time::TimeInfo;
+
+/// Text layout for the HD2020 realtime-text send path
+/// ([`Device::send_realtime_text`]).
+pub use huidu_proto::hd2020::TextLayout;

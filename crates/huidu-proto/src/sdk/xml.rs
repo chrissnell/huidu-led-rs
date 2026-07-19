@@ -8,7 +8,7 @@
 
 use crate::error::ProtoError;
 use quick_xml::events::attributes::Attribute;
-use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::name::QName;
 use quick_xml::{Reader, Writer};
 use std::io::Write;
@@ -63,6 +63,14 @@ impl XmlWriter {
     /// Write a closing tag: `</tag>`.
     pub fn close(&mut self, tag: &str) -> Result<&mut Self, ProtoError> {
         self.inner.write_event(Event::End(BytesEnd::new(tag)))?;
+        Ok(self)
+    }
+
+    /// Write an escaped text node between an open/close pair: the `content` in
+    /// `<tag>content</tag>`. Escaping (`<`, `&`, …) is handled by `quick-xml`.
+    pub fn text(&mut self, content: &str) -> Result<&mut Self, ProtoError> {
+        self.inner
+            .write_event(Event::Text(BytesText::new(content)))?;
         Ok(self)
     }
 
@@ -190,5 +198,20 @@ pub fn bool_str(b: bool) -> &'static str {
         "true"
     } else {
         "false"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_node_is_escaped_between_tags() {
+        let mut x = XmlWriter::new();
+        x.open("string", &[]).unwrap();
+        x.text("a < b & \"c\"").unwrap();
+        x.close("string").unwrap();
+        let out = String::from_utf8(x.into_bytes()).unwrap();
+        assert_eq!(out, "<string>a &lt; b &amp; &quot;c&quot;</string>");
     }
 }
