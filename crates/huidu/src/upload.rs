@@ -116,7 +116,10 @@ impl Device {
             file.seek(std::io::SeekFrom::Start(offset)).await?;
             yield UploadProgress { bytes_sent: offset, total_bytes: size };
 
-            // Step 3 — chunk loop.
+            // Step 3 — chunk loop. A local disk read/seek error here leaves the
+            // device mid-transfer, so the link is logically desynced even though
+            // it is byte-synced: the armed guard poisons and the caller
+            // reconnects, same as any other mid-transaction failure.
             let mut buf = vec![0u8; config.upload_chunk_size.max(1)];
             while offset < size {
                 let n = file.read(&mut buf).await?;
@@ -131,6 +134,8 @@ impl Device {
                     // A device NACK arrives on a synced connection; only an I/O
                     // error or timeout desyncs it. Disarm on the former so a
                     // rejected upload doesn't poison an otherwise-usable link.
+                    // This assumes a content NACK aborts the device-side
+                    // transfer (provisional — confirm against the Go reference).
                     if matches!(err, Error::Upload { .. }) {
                         guard.disarm();
                     }
@@ -181,6 +186,10 @@ async fn send_chunk(
         .await?;
         let content_reply = FileContentReply::parse(&reply.payload)?;
         if content_reply.result == 0 {
+            // `content_reply.received` (the device's running byte count) is
+            // intentionally informational here; we track progress from our own
+            // offset. Cross-checking it awaits confirmation of its exact
+            // semantics against the Go reference.
             return Ok(());
         }
         if attempt >= retries {

@@ -8,6 +8,12 @@ use std::path::PathBuf;
 use common::MockDevice;
 use futures::StreamExt;
 use huidu::{Device, DeviceConfig, Error};
+use md5::{Digest, Md5};
+
+/// The raw MD5 digest of `data`, for asserting the upload hashed the right bytes.
+fn md5_of(data: &[u8]) -> [u8; 16] {
+    Md5::digest(data).into()
+}
 
 /// A temp file that removes itself on drop, so tests leave nothing behind.
 struct TempFile(PathBuf);
@@ -69,8 +75,64 @@ async fn uploads_whole_file_in_chunks() {
     );
     assert_eq!(cap.declared_size, 20_000);
     assert_eq!(cap.name, file.path().file_name().unwrap().to_string_lossy());
-    // Same file hashed for FileStartAsk and FileEndAsk.
-    assert_eq!(cap.end_md5, Some(cap.start_md5));
+    // The upload must hash the actual file bytes, in both the start and end frame.
+    assert_eq!(cap.start_md5, md5_of(&data));
+    assert_eq!(cap.end_md5, Some(md5_of(&data)));
+    assert!(!device.is_poisoned());
+
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn uploads_empty_file() {
+    let file = TempFile::new("empty", &[]);
+    let mock = MockDevice::builder().spawn().await;
+    let device = connect(&mock).await;
+
+    let stream = device.upload_file(file.path()).await.expect("start upload");
+    let progress: Vec<_> = stream.map(|r| r.expect("chunk")).collect().await;
+
+    // A single {0,0} progress, no content frames, but start+end still happen.
+    assert_eq!(progress.len(), 1);
+    assert!(progress[0].is_complete());
+    assert_eq!(progress[0].total_bytes, 0);
+
+    let cap = mock.upload();
+    assert!(cap.started);
+    assert_eq!(
+        cap.first_offset, None,
+        "an empty file sends no content frames"
+    );
+    assert!(cap.received.is_empty());
+    assert_eq!(cap.start_md5, md5_of(&[]));
+    assert_eq!(cap.end_md5, Some(md5_of(&[])));
+    assert!(!device.is_poisoned());
+
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn resume_at_full_size_sends_no_content() {
+    let data = pattern(20_000);
+    let file = TempFile::new("resume-complete", &data);
+    // Device already holds the whole file; only the end handshake remains.
+    let mock = MockDevice::builder()
+        .upload_resume_offset(20_000)
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+
+    let stream = device.upload_file(file.path()).await.expect("start upload");
+    let progress: Vec<_> = stream.map(|r| r.expect("chunk")).collect().await;
+
+    assert_eq!(progress.len(), 1, "only the initial (complete) progress");
+    assert_eq!(progress[0].bytes_sent, 20_000);
+    assert!(progress[0].is_complete());
+
+    let cap = mock.upload();
+    assert_eq!(cap.first_offset, None);
+    assert!(cap.received.is_empty());
+    assert_eq!(cap.end_md5, Some(md5_of(&data)));
     assert!(!device.is_poisoned());
 
     device.close().await.expect("close");
