@@ -9,3 +9,4 @@ description = "Wire framing and codec for the Huidu SDK 2.0 / HD2020 LED control
 bytes = "1"
 thiserror = "1"
 tokio-util = { version = "0.7", features = ["codec"] }
+quick-xml = "0.41"
