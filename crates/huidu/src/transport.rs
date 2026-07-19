@@ -106,8 +106,10 @@ impl<'a> PoisonGuard<'a> {
         Self { flag, armed: true }
     }
 
-    /// Mark the round-trip complete so dropping the guard is a no-op.
-    pub(crate) fn disarm(mut self) {
+    /// Mark the round-trip complete so dropping the guard is a no-op. Takes
+    /// `&mut self` so a multi-step transaction (e.g. file upload) can disarm on
+    /// a clean device rejection without moving the guard out of its loop.
+    pub(crate) fn disarm(&mut self) {
         self.armed = false;
     }
 }

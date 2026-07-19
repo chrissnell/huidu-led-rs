@@ -42,15 +42,15 @@ impl std::fmt::Debug for Device {
 }
 
 pub(crate) struct DeviceInner {
-    frames: Mutex<Conn>,
+    pub(crate) frames: Mutex<Conn>,
     /// Session guid from `GetIFVersion`, echoed back on every command. Kept as
     /// the raw device string so we resend exactly what the device issued.
     guid: String,
     info: DeviceInfo,
-    config: DeviceConfig,
+    pub(crate) config: DeviceConfig,
     protocol: ProtocolKind,
     heartbeat: StdMutex<Option<JoinHandle<()>>>,
-    poisoned: AtomicBool,
+    pub(crate) poisoned: AtomicBool,
 }
 
 impl Device {
@@ -170,7 +170,7 @@ impl DeviceInner {
         if self.poisoned.load(Ordering::SeqCst) {
             return Err(Error::Poisoned);
         }
-        let guard = PoisonGuard::new(&self.poisoned);
+        let mut guard = PoisonGuard::new(&self.poisoned);
         let reply = transport::sdk_roundtrip(&mut frames, xml, &self.config).await?;
         guard.disarm();
         Ok(reply)
@@ -182,7 +182,7 @@ impl DeviceInner {
         if self.poisoned.load(Ordering::SeqCst) {
             return Err(Error::Poisoned);
         }
-        let guard = PoisonGuard::new(&self.poisoned);
+        let mut guard = PoisonGuard::new(&self.poisoned);
         transport::raw_roundtrip(
             &mut frames,
             OwnedFrame::new(CmdCode::Heartbeat, Bytes::new()),

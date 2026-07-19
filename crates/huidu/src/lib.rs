@@ -19,10 +19,12 @@ mod config;
 mod device;
 mod error;
 mod transport;
+mod upload;
 
 pub use config::DeviceConfig;
 pub use device::Device;
 pub use error::{Error, ProtocolKind, Result};
+pub use upload::UploadProgress;
 
 /// Hardware and firmware identity cached during the handshake.
 pub use huidu_proto::sdk::messages::device_info::DeviceInfo;

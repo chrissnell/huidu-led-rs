@@ -5,6 +5,7 @@
 
 pub mod codec;
 pub mod error;
+pub mod file;
 pub mod frame;
 pub mod hd2020;
 pub mod sdk;
@@ -12,6 +13,9 @@ pub mod sdk_frame;
 
 pub use codec::HuiduCodec;
 pub use error::ProtoError;
+pub use file::{
+    FileContentAsk, FileContentReply, FileEndAsk, FileEndReply, FileStartAsk, FileStartReply,
+};
 pub use frame::{CmdCode, OwnedFrame};
 pub use sdk::{SdkMessage, SdkMethod, SdkReplyBody, SdkResult};
 pub use sdk_frame::{SdkFragment, SdkReassembler};
