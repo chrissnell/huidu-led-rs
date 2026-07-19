@@ -18,6 +18,7 @@
 mod config;
 mod device;
 mod error;
+mod probe;
 mod transport;
 
 pub use config::DeviceConfig;
@@ -26,3 +27,7 @@ pub use error::{Error, ProtocolKind, Result};
 
 /// Hardware and firmware identity cached during the handshake.
 pub use huidu_proto::sdk::messages::device_info::DeviceInfo;
+
+/// Text layout for the HD2020 realtime-text send path
+/// ([`Device::send_realtime_text`]).
+pub use huidu_proto::hd2020::TextLayout;
