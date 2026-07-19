@@ -1,0 +1,10 @@
+SDK command frame (CmdCode::SdkCmd, 0x2003) carrying one fragment: total_len=5,
+offset=0, xml_chunk="hello".
+Bytes: 0f 00 03 20 05 00 00 00 00 00 00 00 68 65 6c 6c 6f
+  0f 00                    len = 15 (cmd 2 + payload 13)
+  03 20                    cmd = 0x2003 little-endian
+  05 00 00 00              fragment total_len = 5
+  00 00 00 00              fragment offset = 0
+  68 65 6c 6c 6f           xml_chunk = "hello"
+Provenance: hand-constructed from DESIGN.md §3.1 / §3.3, 2026-07-18.
+Replace with a real device capture when hardware is available.

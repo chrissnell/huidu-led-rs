@@ -1,0 +1,6 @@
+Heartbeat frame (CmdCode::Heartbeat, 0x2005), no payload.
+Bytes: 02 00 05 20
+  02 00  len = 2 (cmd field only)
+  05 20  cmd = 0x2005 little-endian
+Provenance: hand-constructed from DESIGN.md §3.1 command table, 2026-07-18.
+Replace with a real device capture when hardware is available.
