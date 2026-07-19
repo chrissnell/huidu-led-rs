@@ -18,11 +18,16 @@
 mod config;
 mod device;
 mod error;
+mod screen;
 mod transport;
 
 pub use config::DeviceConfig;
 pub use device::Device;
 pub use error::{Error, ProtocolKind, Result};
+pub use screen::{
+    Area, ClockConfig, Color, Effect, HAlign, Item, PlayControl, Program, Screen, TextConfig,
+    TimeFormat, VAlign,
+};
 
 /// Hardware and firmware identity cached during the handshake.
 pub use huidu_proto::sdk::messages::device_info::DeviceInfo;
