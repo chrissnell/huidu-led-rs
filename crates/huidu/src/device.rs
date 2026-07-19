@@ -4,10 +4,12 @@
 use crate::config::DeviceConfig;
 use crate::error::{Error, ProtocolKind, Result};
 use crate::probe;
+use crate::screen::{Area, Program, Screen, TextConfig};
 use crate::transport::{self, Conn, PoisonGuard};
 use bytes::Bytes;
 use huidu_proto::hd2020::{self, TextLayout};
 use huidu_proto::sdk::messages::device_info::{DeviceInfo, GetDeviceInfo};
+use huidu_proto::sdk::messages::program::ProgramPush;
 use huidu_proto::sdk::{self, PLACEHOLDER_GUID};
 use huidu_proto::{
     CmdCode, HuiduCodec, OwnedFrame, ProtoError, SdkMessage, SdkMethod, SdkReplyBody,
@@ -156,6 +158,40 @@ impl Device {
     /// [`Error::Poisoned`] and the caller must reconnect.
     pub fn is_poisoned(&self) -> bool {
         self.inner.poisoned.load(Ordering::SeqCst)
+    }
+
+    /// Push a [`Screen`] to the device, replacing all current programs
+    /// (`DESIGN.md §5`).
+    ///
+    /// The tree is serialized to an SDK 2.0 `AddProgram` request and sent over
+    /// the connection; any device-side error on the reply surfaces as
+    /// [`Error::Proto`]. Only SDK 2.0 connections carry programs — an HD2020
+    /// connection returns [`Error::UnsupportedForProtocol`].
+    pub async fn send_screen(&self, screen: &Screen) -> Result<()> {
+        if self.inner.protocol != ProtocolKind::Sdk2 {
+            return Err(Error::UnsupportedForProtocol(self.inner.protocol));
+        }
+        let fragment = screen.to_program_xml()?;
+        let request = ProgramPush::add(fragment).encode(&self.inner.guid)?;
+        let reply = self.inner.send_sdk(request).await?;
+        sdk::decode_reply(&reply)?.check()?;
+        Ok(())
+    }
+
+    /// Convenience wrapper: show a single line of `text` full-screen with
+    /// `config`, replacing all current programs.
+    ///
+    /// Builds a one-program, one-area [`Screen`] sized to the device's panel and
+    /// delegates to [`Device::send_screen`].
+    pub async fn send_text(&self, text: &str, config: TextConfig) -> Result<()> {
+        let mut area =
+            Area::full_screen(self.inner.info.screen_width, self.inner.info.screen_height);
+        area.add_text(text, config);
+        let mut program = Program::new("text");
+        program.push_area(area);
+        let mut screen = Screen::new();
+        screen.push_program(program);
+        self.send_screen(&screen).await
     }
 
     /// Send an SDK XML request and return the reassembled reply XML. The command

@@ -20,11 +20,16 @@ mod config;
 mod device;
 mod error;
 mod probe;
+mod screen;
 mod transport;
 
 pub use config::DeviceConfig;
 pub use device::Device;
 pub use error::{Error, ProtocolKind, Result};
+pub use screen::{
+    Area, ClockConfig, Color, Effect, HAlign, Item, PlayControl, Program, Screen, TextConfig,
+    TimeFormat, VAlign,
+};
 
 /// Typed request/reply bodies the command surface accepts and returns, re-exported
 /// so callers never reach into `huidu_proto::sdk::messages`.

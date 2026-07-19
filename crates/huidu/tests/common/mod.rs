@@ -6,6 +6,10 @@
 //! (`DESIGN.md §10`). It binds `127.0.0.1:0`, accepts one connection, answers
 //! the 3-phase handshake, auto-replies to heartbeats, and lets a test override
 //! any SDK method's reply. Shared by every `huidu` integration test.
+//!
+//! `#![allow(dead_code)]` (above) because each integration test binary compiles
+//! this module independently; a given test uses only the knobs it needs, so the
+//! others read as dead code in that binary.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
