@@ -1,3 +1,8 @@
+// Each integration-test binary that pulls in this module uses a different
+// subset of the builder; suppress dead-code noise for the parts a given
+// binary doesn't touch.
+#![allow(dead_code)]
+
 //! Tier-2 test harness: a scripted device that speaks the real wire protocol
 //! (`DESIGN.md §10`). It binds `127.0.0.1:0`, accepts one connection, answers
 //! the 3-phase handshake, auto-replies to heartbeats, and lets a test override

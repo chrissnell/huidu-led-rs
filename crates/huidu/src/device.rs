@@ -155,8 +155,7 @@ impl Device {
     }
 
     /// Send an SDK XML request and return the reassembled reply XML. The command
-    /// surface subsystem builds typed wrappers on top of this.
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
+    /// surface (see `commands.rs`) builds typed wrappers on top of this.
     pub(crate) async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
         self.inner.send_sdk(xml).await
     }
@@ -164,7 +163,6 @@ impl Device {
 
 impl DeviceInner {
     /// One serialized SDK round-trip, guarded against cancel-induced desync.
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
     async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
         let mut frames = self.frames.lock().await;
         if self.poisoned.load(Ordering::SeqCst) {

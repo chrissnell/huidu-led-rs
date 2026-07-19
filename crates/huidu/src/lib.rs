@@ -15,6 +15,7 @@
 //! # }
 //! ```
 
+mod commands;
 mod config;
 mod device;
 mod error;
@@ -24,5 +25,14 @@ pub use config::DeviceConfig;
 pub use device::Device;
 pub use error::{Error, ProtocolKind, Result};
 
+/// Typed request/reply bodies the command surface accepts and returns, re-exported
+/// so callers never reach into `huidu_proto::sdk::messages`.
+pub use huidu_proto::sdk::messages::boot_logo::BootLogoInfo;
 /// Hardware and firmware identity cached during the handshake.
 pub use huidu_proto::sdk::messages::device_info::DeviceInfo;
+pub use huidu_proto::sdk::messages::files::{FileInfo, FileList};
+pub use huidu_proto::sdk::messages::luminance::{LuminanceInfo, LuminanceItem, LuminanceMode};
+pub use huidu_proto::sdk::messages::network::{EthernetInfo, WifiInfo, WifiMode};
+pub use huidu_proto::sdk::messages::server::ServerInfo;
+pub use huidu_proto::sdk::messages::switch_time::{SwitchTimeInfo, SwitchTimeItem};
+pub use huidu_proto::sdk::messages::time::TimeInfo;
