@@ -1,0 +1,13 @@
+HD2020 Gen6 brightness frame (Hd2020Cmd::Brightness, 0x03), level = 0x80.
+Bytes: a5 03 01 00 80 84
+  a5           start / resync byte
+  03           cmd = Brightness
+  01 00        len = 1 (u16 little-endian)
+  80           payload = brightness level 128
+  84           checksum = (0x03 + 0x01 + 0x00 + 0x80) & 0xff
+
+Provenance: design-derived, hand-constructed from the HD2020 frame layout in
+`hd2020::frame` (DESIGN.md §6), 2026-07-19. The start byte, command numbering,
+length span, and checksum are placeholders — no capture or Go reference
+(hd2020_gen6_test.go) was available. Reconcile against the Go reference or a
+real HD2020 Gen6 device before locking.

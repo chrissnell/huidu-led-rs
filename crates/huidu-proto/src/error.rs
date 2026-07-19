@@ -51,6 +51,12 @@ pub enum ProtoError {
         method: String,
         result: crate::sdk::SdkResult,
     },
+
+    /// An HD2020 Gen6 realtime frame could not be encoded or decoded — bad
+    /// magic byte, checksum mismatch, unknown command, or a bitmap that does
+    /// not fit the target panel. Carries a human-readable reason.
+    #[error("HD2020 error: {0}")]
+    Hd2020(String),
 }
 
 impl From<quick_xml::Error> for ProtoError {
