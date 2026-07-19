@@ -449,6 +449,13 @@ v1.2.3, 2026-07-15").
    (multi-program, transitions) don't apply to HD2020. Runtime rejection is
    honest; separate types are safer but double the API surface. Proposed:
    one type + validation at `send_screen` time.
+   **Resolved (subsystem 8): one `Screen` type.** HD2020 realtime text is a
+   separate bitmap path with its own entry point (`Device::send_realtime_text`)
+   and never consumes the SDK `Screen` tree, so a split would double the builder
+   surface to model a divergence the protocol gate already expresses. The SDK
+   `Screen` stays one type; `send_screen` lives on the SDK path and returns
+   `Error::UnsupportedForProtocol` on an HD2020 connection via the same
+   protocol gate as every other SDK command (`DESIGN.md §6`).
 4. **Font asset licensing** for HD2020. Plan9 bitmap font is BSD-licensed and
    what `basicfont` uses — safe to include. Confirm before shipping.
 5. **Which `tokio` version.** Pin to `1.x` (latest stable). No reason to

@@ -48,6 +48,27 @@ pub(crate) async fn raw_roundtrip(
     Ok(reply)
 }
 
+/// Write one native HD2020 Gen6 frame straight to the underlying socket and
+/// flush it (`DESIGN.md §6`).
+///
+/// HD2020 does not share the `<len:u16le><cmd:u16le>` envelope with SDK 2.0, so
+/// its bytes bypass [`HuiduCodec`] entirely — we reach past `Framed` to the raw
+/// [`TcpStream`] via [`Framed::get_mut`]. v0 realtime pushes are fire-and-forget:
+/// no ack shape is specified, so we send and return without reading a reply. The
+/// caller wraps this in a [`PoisonGuard`] so a cancelled write still poisons the
+/// connection.
+pub(crate) async fn hd2020_send(conn: &mut Conn, frame: Bytes, deadline: Duration) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let stream = conn.get_mut();
+    timeout(deadline, async {
+        stream.write_all(&frame).await?;
+        stream.flush().await
+    })
+    .await
+    .map_err(|_| Error::Timeout(deadline))??;
+    Ok(())
+}
+
 /// Send an SDK XML document — fragmenting it into `SdkCmd` frames sized by
 /// `sdk_fragment_size` — then reassemble the `SdkReply` frames back into the
 /// full reply XML. Timed by `config.timeout` per reply frame.
