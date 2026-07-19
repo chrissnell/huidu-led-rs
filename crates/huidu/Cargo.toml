@@ -1,0 +1,18 @@
+[package]
+name = "huidu"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "Async tokio client for Huidu LED controllers: handshake, heartbeat, commands, file upload."
+
+[dependencies]
+huidu-proto = { path = "../huidu-proto" }
+bytes = "1"
+futures = "0.3"
+thiserror = "1"
+tokio = { version = "1", features = ["net", "rt", "time", "sync", "macros"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["net", "rt", "time", "sync", "macros", "rt-multi-thread"] }
