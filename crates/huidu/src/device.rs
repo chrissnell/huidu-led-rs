@@ -1,11 +1,13 @@
-//! The connected device: `connect`, the 3-phase handshake, the background
-//! heartbeat, and `close` (`DESIGN.md §4.1`–§4.4).
+//! The connected device: `connect` (protocol probe + handshake), the background
+//! heartbeat, command dispatch gating, and `close` (`DESIGN.md §4.1`–§4.4, §6).
 
 use crate::config::DeviceConfig;
 use crate::error::{Error, ProtocolKind, Result};
+use crate::probe;
 use crate::screen::{Area, Program, Screen, TextConfig};
 use crate::transport::{self, Conn, PoisonGuard};
 use bytes::Bytes;
+use huidu_proto::hd2020::{self, TextLayout};
 use huidu_proto::sdk::messages::device_info::{DeviceInfo, GetDeviceInfo};
 use huidu_proto::sdk::messages::program::ProgramPush;
 use huidu_proto::sdk::{self, PLACEHOLDER_GUID};
@@ -56,11 +58,14 @@ pub(crate) struct DeviceInner {
 }
 
 impl Device {
-    /// Connect to `addr`, run the handshake, and start the heartbeat.
+    /// Connect to `addr`, probe the protocol, run the handshake, and (on SDK 2.0)
+    /// start the heartbeat.
     ///
-    /// The three phases (`DESIGN.md §4.2`) run linearly on the bare socket; any
-    /// failure drops the connection and returns [`Error::Handshake`] tagged with
-    /// the failing phase. No auto-reconnect.
+    /// Phase 1 sends `VersionAsk` and classifies the device from the reply
+    /// (`DESIGN.md §6`): an SDK 2.0 device then runs phases 2–3 (`GetIFVersion`,
+    /// `GetDeviceInfo`); an HD2020 Gen6 device skips them, as it does not speak
+    /// SDK XML. Any phase failure drops the connection and returns
+    /// [`Error::Handshake`] tagged with the failing phase. No auto-reconnect.
     pub async fn connect(addr: SocketAddr, config: DeviceConfig) -> Result<Self> {
         // Bound the TCP connect by the same deadline as a round-trip, so an
         // unreachable device fails fast instead of hanging on the OS default.
@@ -70,9 +75,9 @@ impl Device {
         let mut conn = Framed::new(stream, HuiduCodec);
         tracing::debug!(%addr, "connected; starting handshake");
 
-        // Phase 1 — transport version. The VersionReply payload is unspecified
-        // in DESIGN §3; v0 sends an empty ask and only asserts the reply code.
-        transport::raw_roundtrip(
+        // Phase 1 — version probe. Both protocols share this raw exchange; the
+        // reply payload tells us which one the device speaks (`DESIGN.md §6`).
+        let reply = transport::raw_roundtrip(
             &mut conn,
             OwnedFrame::new(CmdCode::VersionAsk, Bytes::new()),
             CmdCode::VersionReply,
@@ -80,41 +85,38 @@ impl Device {
         )
         .await
         .map_err(|e| handshake(1, e))?;
+        let protocol = probe::classify(&reply.payload);
+        tracing::debug!(?protocol, "protocol probed");
 
-        // Phase 2 — GetIFVersion yields the session guid on the reply's <sdk>.
-        let req = sdk::encode_request(PLACEHOLDER_GUID, SdkMethod::GetIfVersion, |_| Ok(()))
-            .map_err(|e| handshake(2, e.into()))?;
-        let reply = transport::sdk_roundtrip(&mut conn, req, &config)
-            .await
-            .map_err(|e| handshake(2, e))?;
-        let guid = session_guid(&reply).map_err(|e| handshake(2, e))?;
-        tracing::debug!(%guid, "handshake session established");
-
-        // Phase 3 — GetDeviceInfo, cached for the life of the connection.
-        let req = GetDeviceInfo
-            .encode_request(&guid)
-            .map_err(|e| handshake(3, e.into()))?;
-        let reply = transport::sdk_roundtrip(&mut conn, req, &config)
-            .await
-            .map_err(|e| handshake(3, e))?;
-        let info = DeviceInfo::decode(&reply).map_err(|e| handshake(3, e.into()))?;
-        tracing::info!(model = %info.model, id = %info.device_id, "device ready");
+        // The SDK 2.0 identity phases only exist on the SDK path; an HD2020 Gen6
+        // controller does not speak SDK XML, so it skips them and carries no
+        // session guid or cached DeviceInfo in v0.
+        let (guid, info) = match protocol {
+            ProtocolKind::Sdk2 => sdk_handshake(&mut conn, &config).await?,
+            ProtocolKind::Hd2020 => (String::new(), DeviceInfo::default()),
+        };
 
         let inner = Arc::new(DeviceInner {
             frames: Mutex::new(conn),
             guid,
             info,
             config,
-            protocol: ProtocolKind::Sdk2,
+            protocol,
             heartbeat: StdMutex::new(None),
             poisoned: AtomicBool::new(false),
         });
 
-        let handle = tokio::spawn(heartbeat_loop(
-            Arc::downgrade(&inner),
-            inner.config.heartbeat,
-        ));
-        *inner.heartbeat.lock().unwrap() = Some(handle);
+        // The SDK heartbeat rides the shared `<len><cmd>` envelope; an HD2020
+        // connection speaks native framing after the probe (`DESIGN.md §6`), so
+        // interleaving SDK heartbeats there would corrupt the stream. v0 runs no
+        // heartbeat on HD2020.
+        if protocol == ProtocolKind::Sdk2 {
+            let handle = tokio::spawn(heartbeat_loop(
+                Arc::downgrade(&inner),
+                inner.config.heartbeat,
+            ));
+            *inner.heartbeat.lock().unwrap() = Some(handle);
+        }
 
         Ok(Device { inner })
     }
@@ -134,12 +136,14 @@ impl Device {
         Ok(())
     }
 
-    /// The session guid assigned during the handshake.
+    /// The session guid assigned during the SDK 2.0 handshake. Empty on an
+    /// [`ProtocolKind::Hd2020`] connection, which runs no SDK identity phases.
     pub fn guid(&self) -> &str {
         &self.inner.guid
     }
 
-    /// The device info cached during the handshake.
+    /// The device info cached during the SDK 2.0 handshake. Default-valued on an
+    /// [`ProtocolKind::Hd2020`] connection, which has no SDK `GetDeviceInfo`.
     pub fn info(&self) -> &DeviceInfo {
         &self.inner.info
     }
@@ -191,16 +195,57 @@ impl Device {
     }
 
     /// Send an SDK XML request and return the reassembled reply XML. The command
-    /// surface subsystem builds typed wrappers on top of this.
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
+    /// surface (see `commands.rs`) builds typed wrappers on top of this.
+    ///
+    /// Returns [`Error::UnsupportedForProtocol`] on an [`ProtocolKind::Hd2020`]
+    /// connection — HD2020 Gen6 controllers do not speak SDK 2.0 (`DESIGN.md §6`).
     pub(crate) async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
+        self.inner.require(ProtocolKind::Sdk2)?;
         self.inner.send_sdk(xml).await
+    }
+
+    /// Render `text` into a `width × height` monochrome panel and push it as an
+    /// HD2020 Gen6 realtime-text frame (`DESIGN.md §6`), rasterized by the
+    /// subsystem-3 bitmap encoder.
+    ///
+    /// Returns [`Error::UnsupportedForProtocol`] on an [`ProtocolKind::Sdk2`]
+    /// connection. v0 realtime pushes are fire-and-forget: the frame is written
+    /// and flushed, with no reply awaited.
+    pub async fn send_realtime_text(
+        &self,
+        text: &str,
+        width: usize,
+        height: usize,
+        layout: &TextLayout,
+    ) -> Result<()> {
+        self.inner.require(ProtocolKind::Hd2020)?;
+        let frame = hd2020::realtime_text_frame(text, width, height, layout)?;
+        self.inner.send_hd2020(frame).await
     }
 }
 
 impl DeviceInner {
+    /// Gate a command on the protocol the connection actually speaks
+    /// (`DESIGN.md §6`). Commands exclusive to the other protocol fail with
+    /// [`Error::UnsupportedForProtocol`] rather than misbehaving on the wire.
+    fn require(&self, kind: ProtocolKind) -> Result<()> {
+        ensure_protocol(self.protocol, kind)
+    }
+
+    /// Write one native HD2020 frame under the connection mutex, guarded the same
+    /// way as an SDK round-trip.
+    async fn send_hd2020(&self, frame: Bytes) -> Result<()> {
+        let mut frames = self.frames.lock().await;
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(Error::Poisoned);
+        }
+        let guard = PoisonGuard::new(&self.poisoned);
+        transport::hd2020_send(&mut frames, frame, self.config.timeout).await?;
+        guard.disarm();
+        Ok(())
+    }
+
     /// One serialized SDK round-trip, guarded against cancel-induced desync.
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
     async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
         let mut frames = self.frames.lock().await;
         if self.poisoned.load(Ordering::SeqCst) {
@@ -228,6 +273,43 @@ impl DeviceInner {
         .await?;
         guard.disarm();
         Ok(())
+    }
+}
+
+/// The SDK 2.0 identity phases (2 and 3 of `DESIGN.md §4.2`), run only when the
+/// probe classified the device as [`ProtocolKind::Sdk2`]. Returns the session
+/// guid and the cached [`DeviceInfo`].
+async fn sdk_handshake(conn: &mut Conn, config: &DeviceConfig) -> Result<(String, DeviceInfo)> {
+    // Phase 2 — GetIFVersion yields the session guid on the reply's <sdk>.
+    let req = sdk::encode_request(PLACEHOLDER_GUID, SdkMethod::GetIfVersion, |_| Ok(()))
+        .map_err(|e| handshake(2, e.into()))?;
+    let reply = transport::sdk_roundtrip(conn, req, config)
+        .await
+        .map_err(|e| handshake(2, e))?;
+    let guid = session_guid(&reply).map_err(|e| handshake(2, e))?;
+    tracing::debug!(%guid, "handshake session established");
+
+    // Phase 3 — GetDeviceInfo, cached for the life of the connection.
+    let req = GetDeviceInfo
+        .encode_request(&guid)
+        .map_err(|e| handshake(3, e.into()))?;
+    let reply = transport::sdk_roundtrip(conn, req, config)
+        .await
+        .map_err(|e| handshake(3, e))?;
+    let info = DeviceInfo::decode(&reply).map_err(|e| handshake(3, e.into()))?;
+    tracing::info!(model = %info.model, id = %info.device_id, "device ready");
+    Ok((guid, info))
+}
+
+/// Gate a command on the protocol the connection speaks (`DESIGN.md §6`): a
+/// command exclusive to the other protocol fails with
+/// [`Error::UnsupportedForProtocol`] carrying the connection's actual protocol,
+/// rather than misbehaving on the wire.
+fn ensure_protocol(current: ProtocolKind, need: ProtocolKind) -> Result<()> {
+    if current == need {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedForProtocol(current))
     }
 }
 
@@ -269,5 +351,34 @@ async fn heartbeat_loop(inner: Weak<DeviceInner>, interval: Duration) {
             return;
         }
         tracing::trace!("heartbeat ok");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_protocol_allows_the_matching_protocol() {
+        assert!(ensure_protocol(ProtocolKind::Sdk2, ProtocolKind::Sdk2).is_ok());
+        assert!(ensure_protocol(ProtocolKind::Hd2020, ProtocolKind::Hd2020).is_ok());
+    }
+
+    #[test]
+    fn ensure_protocol_rejects_sdk_command_on_hd2020() {
+        let err = ensure_protocol(ProtocolKind::Hd2020, ProtocolKind::Sdk2).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::UnsupportedForProtocol(ProtocolKind::Hd2020)
+        ));
+    }
+
+    #[test]
+    fn ensure_protocol_rejects_hd2020_command_on_sdk() {
+        let err = ensure_protocol(ProtocolKind::Sdk2, ProtocolKind::Hd2020).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::UnsupportedForProtocol(ProtocolKind::Sdk2)
+        ));
     }
 }
