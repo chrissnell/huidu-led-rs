@@ -159,11 +159,10 @@ impl Device {
     }
 
     /// Send an SDK XML request and return the reassembled reply XML. The command
-    /// surface subsystem builds typed wrappers on top of this.
+    /// surface (see `commands.rs`) builds typed wrappers on top of this.
     ///
     /// Returns [`Error::UnsupportedForProtocol`] on an [`ProtocolKind::Hd2020`]
     /// connection — HD2020 Gen6 controllers do not speak SDK 2.0 (`DESIGN.md §6`).
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
     pub(crate) async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
         self.inner.require(ProtocolKind::Sdk2)?;
         self.inner.send_sdk(xml).await
@@ -211,7 +210,6 @@ impl DeviceInner {
     }
 
     /// One serialized SDK round-trip, guarded against cancel-induced desync.
-    #[allow(dead_code)] // first consumed by the SDK command-surface subsystem
     async fn send_sdk(&self, xml: Bytes) -> Result<Bytes> {
         let mut frames = self.frames.lock().await;
         if self.poisoned.load(Ordering::SeqCst) {
