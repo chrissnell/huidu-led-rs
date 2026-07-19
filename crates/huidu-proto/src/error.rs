@@ -26,10 +26,41 @@ pub enum ProtoError {
     FragmentGap { expected: u32, got: u32 },
 
     /// An SDK fragment would push the reassembled buffer past its declared length.
-    #[error("sdk fragment overflows declared total length {total}: offset {offset} + {chunk} bytes")]
-    FragmentOverflow { total: u32, offset: u32, chunk: usize },
+    #[error(
+        "sdk fragment overflows declared total length {total}: offset {offset} + {chunk} bytes"
+    )]
+    FragmentOverflow {
+        total: u32,
+        offset: u32,
+        chunk: usize,
+    },
 
     /// A later SDK fragment declared a different total length than the first.
     #[error("sdk fragment total length changed mid-message: expected {expected}, got {got}")]
     FragmentTotalLenMismatch { expected: u32, got: u32 },
+
+    /// XML could not be written or parsed. Carries the `quick-xml` message text;
+    /// the underlying error types don't survive a `#[from]` cleanly across the
+    /// writer, reader, and attribute layers, so they're flattened to a string.
+    #[error("xml error: {0}")]
+    Xml(String),
+
+    /// The device answered a method with a non-success `result`.
+    #[error("device returned {result} for method {method}")]
+    SdkError {
+        method: String,
+        result: crate::sdk::SdkResult,
+    },
+}
+
+impl From<quick_xml::Error> for ProtoError {
+    fn from(e: quick_xml::Error) -> Self {
+        ProtoError::Xml(e.to_string())
+    }
+}
+
+impl From<quick_xml::events::attributes::AttrError> for ProtoError {
+    fn from(e: quick_xml::events::attributes::AttrError) -> Self {
+        ProtoError::Xml(e.to_string())
+    }
 }
