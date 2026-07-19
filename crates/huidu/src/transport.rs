@@ -57,6 +57,12 @@ pub(crate) async fn raw_roundtrip(
 /// no ack shape is specified, so we send and return without reading a reply. The
 /// caller wraps this in a [`PoisonGuard`] so a cancelled write still poisons the
 /// connection.
+///
+/// **Invariant.** This is safe to write raw only because an HD2020 connection
+/// issues no `HuiduCodec` reads or writes after the probe (it runs no heartbeat,
+/// and realtime sends never await a codec-framed reply). A future HD2020 ack or
+/// read path must not resume codec framing on this socket while raw bytes are in
+/// flight, or `Framed`'s read buffer and the raw stream would desync.
 pub(crate) async fn hd2020_send(conn: &mut Conn, frame: Bytes, deadline: Duration) -> Result<()> {
     use tokio::io::AsyncWriteExt;
     let stream = conn.get_mut();
