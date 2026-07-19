@@ -3,16 +3,9 @@
 Async Rust client for **Huidu full-color LED controller cards**, speaking the
 Huidu SDK 2.0 binary TCP protocol and the HD2020 Gen6 realtime protocol.
 
-## Status
-
-**Design phase.** No implementation yet. The wire protocol is understood; the
-API is designed and documented; code lands next.
-
 - Design doc: [`DESIGN.md`](DESIGN.md)
 - Reference implementation (Go, consulted for protocol facts only):
   [alparslanahmed/huidu-led](https://github.com/alparslanahmed/huidu-led)
-
-Follow along or grep git history if you want to see the crate come up.
 
 ---
 
@@ -22,30 +15,28 @@ Two crates in one workspace:
 
 | Crate | Purpose |
 |-------|---------|
-| `huidu-proto` | Wire framing, SDK XML message types, HD2020 bitmap encoding. No I/O. Pure `bytes ↔ message` codec. |
-| `huidu` | Async device client on `tokio`. Handshake, heartbeat, command dispatch, file upload, screen builder. |
+| `huidu-proto` | Wire framing, SDK 2.0 XML message types, HD2020 bitmap encoding. No I/O. Pure `bytes ↔ message` codec. |
+| `huidu` | Async device client on `tokio`. Handshake, heartbeat, command dispatch, screen builder. |
 
 Splitting the codec from the I/O layer means tests hit real bytes, not a
 socket, and downstream users who want sync or embedded transports can depend on
-`huidu-proto` alone.
+`huidu-proto` alone. The whole test suite runs without hardware.
 
 ---
 
 ## Target hardware
 
-| Controller | Protocol | Confirmed on |
-|------------|----------|--------------|
-| HD-WF2 and other SDK 2.0 full-color cards | SDK 2.0 binary TCP (port 10001) | Reference implementation |
-| HD2020 Gen6 (HD-E63 and similar) | HD2020 realtime bitmap | Reference implementation |
+| Controller | Protocol |
+|------------|----------|
+| HD-WF2 and other SDK 2.0 full-color cards | SDK 2.0 binary TCP (port 10001) |
+| HD2020 Gen6 (HD-E63 and similar) | HD2020 realtime bitmap |
 
 Protocol selection happens automatically at connect time based on the device's
 probe response.
 
 ---
 
-## Planned API
-
-The examples below describe the *target* API. None of this code compiles yet.
+## Usage
 
 ### Connect and send text
 
@@ -70,6 +61,9 @@ async fn main() -> Result<(), huidu::Error> {
     Ok(())
 }
 ```
+
+`send_text` sizes the text area to the panel dimensions the device reports
+during the handshake, so you don't pass a width or height.
 
 ### Build a multi-program screen
 
@@ -105,41 +99,37 @@ device.send_screen(&screen).await?;
 Configs are plain structs with `Default`. Use struct-update syntax to override
 what you care about. No `WithFoo`/`WithBar` builder soup.
 
-### Upload a file with progress
+### Adjust the device
 
 ```rust
-use futures::StreamExt;
+let info = device.get_device_info().await?;
+println!("{} — {}x{}", info.model, info.screen_width, info.screen_height);
 
-let mut progress = device.upload_file("/path/to/logo.jpg").await?;
-while let Some(p) = progress.next().await {
-    let p = p?;
-    eprintln!("{}: {:.1}% ({}/{})", p.filename, p.percent, p.sent, p.total);
-}
+device.set_brightness_manual(60).await?;      // 0–100%
+let files = device.list_files().await?;
 ```
 
 ---
 
-## Planned feature coverage
+## Feature coverage
 
 Parity with the Go reference implementation's SDK 2.0 command set.
 
-- Device info (`GetDeviceInfo`)
-- Screen builder (Screen → Program → Area → Item) with all 30+ transition
-  effects for text, image, video, and clock items
-- Brightness — manual, scheduled, sensor
-- Screen on/off — immediate and scheduled
+- Device info (`GetDeviceInfo`), including reported panel dimensions
+- Screen builder (Screen → Program → Area → Item) with 12 entry/exit animation
+  effects for text and clock items
+- Brightness — manual, scheduled, and light-sensor modes
+- Screen on/off scheduling (switch-time table)
 - Network — Ethernet (static/DHCP) and WiFi (AP + Station)
 - Time sync — set time, timezone, DST
-- File upload — chunked, MD5-verified, resume-capable, progress stream
-- File management — list, delete
-- Boot logo — get/set/clear
+- File management — list and delete
+- Boot logo — get, set by name, clear
 - TCP server config
 - Heartbeat keep-alive
-- Auto-detection of screen dimensions
-- HD2020 Gen6 realtime text (fallback for older/simpler controllers)
+- HD2020 Gen6 realtime text (for older/simpler controllers)
 
-Out of scope for v0: auto-reconnect (planned as a wrapper type), CLI binaries
-(planned as a separate `huidu-cli` crate).
+Not included: auto-reconnect (a cancelled command poisons the connection and the
+caller reconnects) and CLI binaries — both left for a later `huidu-cli` crate.
 
 ---
 
@@ -149,10 +139,11 @@ Out of scope for v0: auto-reconnect (planned as a wrapper type), CLI binaries
 - **Handshake:** 3 phases — transport version (0x2001), SDK version
   (`GetIFVersion` XML, returns session GUID), device info (`GetDeviceInfo`).
 - **SDK envelope:** command 0x2003 wraps XML with a `<total_len:u32le,
-  offset:u32le>` header, fragmenting XML payloads > 8000 bytes.
-- **File upload:** three-phase state machine — `FileStartAsk` (0x8001) →
-  chunked `FileContentAsk` (0x8003) → `FileEndAsk` (0x8005), with MD5
-  verification and resume-on-partial support.
+  offset:u32le>` header, fragmenting XML payloads > 8000 bytes and reassembling
+  them on receive.
+- **File transfer:** frame codes for the three-phase upload state machine —
+  `FileStartAsk` (0x8001) → `FileContentAsk` (0x8003) → `FileEndAsk` (0x8005) —
+  are defined in `huidu-proto`.
 - **Heartbeat:** periodic 0x2005 pings keep the session alive; device replies
   with 0x2006.
 
@@ -162,16 +153,15 @@ Full protocol details in [`DESIGN.md §3`](DESIGN.md#3-wire-protocol-layer-huidu
 
 ## Development
 
-Once code lands, standard workflow:
-
 ```bash
-cargo test                          # codec goldens + mock device
-cargo test --features hardware      # against real device at $HUIDU_TEST_ADDR
+cargo test                          # codec goldens + mock-device flows
 cargo doc --open                    # API docs
 ```
 
-Golden fixtures live in `tests/fixtures/`, one `.bin` per captured message
-with a `.txt` sidecar documenting provenance.
+The test suite needs no hardware: `huidu-proto` tests decode golden byte
+fixtures, and `huidu` tests drive a scripted in-process mock device. Golden
+fixtures live in `crates/huidu-proto/tests/fixtures/`, one `.bin` per captured
+message with a `.txt` sidecar documenting provenance.
 
 ---
 
@@ -190,4 +180,4 @@ The bundled bitmap font for HD2020 text rendering is the Plan 9 fixed font
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE) (once added).
+MIT. See [`LICENSE`](LICENSE).
