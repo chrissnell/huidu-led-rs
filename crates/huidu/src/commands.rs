@@ -21,7 +21,9 @@ use huidu_proto::{ProtoError, SdkMessage, SdkReplyBody};
 impl Device {
     /// Round-trip a request whose reply carries a typed body, decoding it with
     /// the reply type's own `decode` (works for both `SdkMessage` getters and
-    /// `SdkReplyBody` reply-only types, which share the decoder signature).
+    /// `SdkReplyBody` reply-only types, which share the decoder signature). The
+    /// decoder scans raw elements, so the method identity on a shared info type
+    /// (a setter `METHOD` decoding a getter's reply) does not matter.
     async fn get_body<T>(
         &self,
         request: Bytes,
@@ -57,7 +59,9 @@ impl Device {
         self.exec(info.encode_request(self.guid())?).await
     }
 
-    /// Set a fixed brightness `percent` (1–100).
+    /// Set a fixed brightness `percent` (1–100). Writes a complete policy: the
+    /// scheduled and sensor parameters are reset to firmware defaults. Use
+    /// [`Device::set_brightness`] to preserve them.
     pub async fn set_brightness_manual(&self, percent: u8) -> Result<()> {
         self.set_brightness(&LuminanceInfo {
             mode: LuminanceMode::Fixed,
@@ -67,7 +71,9 @@ impl Device {
         .await
     }
 
-    /// Drive brightness from a time-of-day schedule.
+    /// Drive brightness from a time-of-day schedule. Writes a complete policy:
+    /// the fixed value and sensor parameters are reset to firmware defaults. Use
+    /// [`Device::set_brightness`] to preserve them.
     pub async fn set_brightness_scheduled(&self, items: Vec<LuminanceItem>) -> Result<()> {
         self.set_brightness(&LuminanceInfo {
             mode: LuminanceMode::Scheduled,
@@ -78,7 +84,9 @@ impl Device {
     }
 
     /// Drive brightness from the ambient light sensor, clamped to `min..=max`
-    /// percent and averaged over `time` seconds.
+    /// percent and averaged over `time` seconds. Writes a complete policy: the
+    /// fixed value and schedule are reset to firmware defaults. Use
+    /// [`Device::set_brightness`] to preserve them.
     pub async fn set_brightness_sensor(&self, min: u8, max: u8, time: u8) -> Result<()> {
         self.set_brightness(&LuminanceInfo {
             mode: LuminanceMode::Sensor,

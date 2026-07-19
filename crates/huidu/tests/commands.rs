@@ -10,13 +10,13 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use common::MockDevice;
 use huidu::{
-    BootLogoInfo, Device, DeviceConfig, DeviceInfo, EthernetInfo, FileInfo, FileList, LuminanceInfo,
-    LuminanceItem, LuminanceMode, ServerInfo, SwitchTimeInfo, SwitchTimeItem, TimeInfo, WifiInfo,
-    WifiMode,
+    BootLogoInfo, Device, DeviceConfig, DeviceInfo, Error, EthernetInfo, FileInfo, FileList,
+    LuminanceInfo, LuminanceItem, LuminanceMode, ServerInfo, SwitchTimeInfo, SwitchTimeItem,
+    TimeInfo, WifiInfo, WifiMode,
 };
 use huidu_proto::sdk::messages::files::DeleteFiles;
 use huidu_proto::sdk::{self, SdkReply};
-use huidu_proto::{SdkMethod, SdkMessage, SdkReplyBody, SdkResult};
+use huidu_proto::{ProtoError, SdkMethod, SdkMessage, SdkReplyBody, SdkResult};
 
 async fn connect(mock: &MockDevice) -> Device {
     Device::connect(mock.addr(), DeviceConfig::default())
@@ -187,6 +187,30 @@ async fn set_ethernet_sends_static_config() {
 }
 
 #[tokio::test]
+async fn get_wifi_parses_reply() {
+    let live = WifiInfo {
+        has_wifi: true,
+        enabled: true,
+        mode: WifiMode::Ap,
+        ssid: "led-panel".into(),
+        password: "hunter2".into(),
+        channel: "11".into(),
+        encryption: "WPA2-PSK".into(),
+    };
+    let reply = live.clone();
+    let mock = MockDevice::builder()
+        .respond(SdkMethod::GetWifiInfo, move |req| {
+            let guid = req.guid.clone().unwrap_or_default();
+            reply.encode_reply(&guid, &SdkResult::success()).unwrap()
+        })
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+    assert_eq!(device.get_wifi().await.expect("get"), live);
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
 async fn set_wifi_sends_station_config() {
     let slot = Arc::new(Mutex::new(None::<WifiInfo>));
     let mock = MockDevice::builder()
@@ -274,6 +298,30 @@ async fn set_switch_time_sends_windows() {
     device.close().await.expect("close");
 }
 
+#[tokio::test]
+async fn get_switch_time_parses_reply() {
+    let live = SwitchTimeInfo {
+        open_enabled: false,
+        ploy_enabled: true,
+        items: vec![SwitchTimeItem {
+            enabled: true,
+            start: "06:30:00".into(),
+            end: "12:00:00".into(),
+        }],
+    };
+    let reply = live.clone();
+    let mock = MockDevice::builder()
+        .respond(SdkMethod::GetSwitchTime, move |req| {
+            let guid = req.guid.clone().unwrap_or_default();
+            reply.encode_reply(&guid, &SdkResult::success()).unwrap()
+        })
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+    assert_eq!(device.get_switch_time().await.expect("get"), live);
+    device.close().await.expect("close");
+}
+
 // ─── Boot logo ────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -337,6 +385,25 @@ async fn clear_boot_logo_completes() {
 // ─── TCP server and files ─────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn get_server_parses_reply() {
+    let live = ServerInfo {
+        host: "10.0.0.9".into(),
+        port: 10001,
+    };
+    let reply = live.clone();
+    let mock = MockDevice::builder()
+        .respond(SdkMethod::GetSdkTcpServer, move |req| {
+            let guid = req.guid.clone().unwrap_or_default();
+            reply.encode_reply(&guid, &SdkResult::success()).unwrap()
+        })
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+    assert_eq!(device.get_server().await.expect("get"), live);
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
 async fn set_server_sends_host_and_port() {
     let slot = Arc::new(Mutex::new(None::<ServerInfo>));
     let mock = MockDevice::builder()
@@ -391,5 +458,64 @@ async fn delete_files_sends_names() {
         .expect("delete");
     let sent = slot.lock().unwrap().clone().expect("captured");
     assert_eq!(sent.names, vec!["a.jpg".to_string(), "b.mp4".to_string()]);
+    device.close().await.expect("close");
+}
+
+// ─── Device-error propagation ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn getter_surfaces_device_error() {
+    // The device answers the getter with a non-success result.
+    let mock = MockDevice::builder()
+        .respond(SdkMethod::GetTimeInfo, |req| {
+            let guid = req.guid.clone().unwrap_or_default();
+            sdk::encode_reply(
+                &guid,
+                SdkMethod::GetTimeInfo,
+                &SdkResult::from("kParseXmlFailed"),
+                |_| Ok(()),
+            )
+            .unwrap()
+        })
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+    let err = device.get_time().await.expect_err("device error must surface");
+    assert!(
+        matches!(err, Error::Proto(ProtoError::SdkError { .. })),
+        "expected a device SDK error, got {err:?}"
+    );
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn setter_surfaces_device_error() {
+    // The device rejects the setter with a non-success result.
+    let mock = MockDevice::builder()
+        .respond(SdkMethod::SetSdkTcpServer, |req| {
+            let guid = req.guid.clone().unwrap_or_default();
+            sdk::encode_reply(
+                &guid,
+                SdkMethod::SetSdkTcpServer,
+                &SdkResult::from("kDeviceBusy"),
+                |_| Ok(()),
+            )
+            .unwrap()
+        })
+        .spawn()
+        .await;
+    let device = connect(&mock).await;
+    let cfg = ServerInfo {
+        host: "srv.example.com".into(),
+        port: 6000,
+    };
+    let err = device
+        .set_server(&cfg)
+        .await
+        .expect_err("device error must surface");
+    assert!(
+        matches!(err, Error::Proto(ProtoError::SdkError { .. })),
+        "expected a device SDK error, got {err:?}"
+    );
     device.close().await.expect("close");
 }
