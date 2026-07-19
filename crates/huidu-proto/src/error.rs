@@ -28,4 +28,8 @@ pub enum ProtoError {
     /// An SDK fragment would push the reassembled buffer past its declared length.
     #[error("sdk fragment overflows declared total length {total}: offset {offset} + {chunk} bytes")]
     FragmentOverflow { total: u32, offset: u32, chunk: usize },
+
+    /// A later SDK fragment declared a different total length than the first.
+    #[error("sdk fragment total length changed mid-message: expected {expected}, got {got}")]
+    FragmentTotalLenMismatch { expected: u32, got: u32 },
 }

@@ -34,9 +34,10 @@ impl Decoder for HuiduCodec {
             src.reserve(total - src.len());
             return Ok(None);
         }
-        src.advance(LEN_BYTES);
-        let cmd = CmdCode::from_u16(u16::from_le_bytes([src[0], src[1]]))?;
-        src.advance(CMD_BYTES);
+        // Peek the cmd word before consuming, so an UnknownCmd error leaves the
+        // buffer untouched at the frame boundary rather than mid-frame.
+        let cmd = CmdCode::from_u16(u16::from_le_bytes([src[LEN_BYTES], src[LEN_BYTES + 1]]))?;
+        src.advance(LEN_BYTES + CMD_BYTES);
         let payload = src.split_to(len - CMD_BYTES).freeze();
         Ok(Some(OwnedFrame { cmd, payload }))
     }
@@ -101,6 +102,8 @@ mod tests {
         let mut buf = BytesMut::from(&[0x02u8, 0x00, 0x99, 0x99][..]);
         let err = codec.decode(&mut buf).unwrap_err();
         assert!(matches!(err, ProtoError::UnknownCmd(0x9999)));
+        // The buffer is left intact at the frame boundary, not advanced mid-frame.
+        assert_eq!(&buf[..], &[0x02, 0x00, 0x99, 0x99]);
     }
 
     #[test]

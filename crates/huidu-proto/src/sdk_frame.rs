@@ -47,6 +47,9 @@ impl SdkFragment {
 ///
 /// Assumes one in-flight message at a time, which holds because the transport
 /// serializes every request/response through a single mutex (see `DESIGN.md §4.1`).
+/// Fragments from two interleaved messages would be mis-reassembled, not rejected;
+/// a multiplexing reader (`DESIGN.md §3.3`) must key by `(guid, method)` instead of
+/// reusing this type.
 #[derive(Debug, Default)]
 pub struct SdkReassembler {
     total_len: u32,
@@ -64,6 +67,11 @@ impl SdkReassembler {
     pub fn push(&mut self, frag: SdkFragment) -> Result<Option<Bytes>, ProtoError> {
         if self.buf.is_empty() {
             self.total_len = frag.total_len;
+        } else if frag.total_len != self.total_len {
+            return Err(ProtoError::FragmentTotalLenMismatch {
+                expected: self.total_len,
+                got: frag.total_len,
+            });
         }
         let expected = self.buf.len() as u32;
         if frag.offset != expected {
@@ -72,8 +80,9 @@ impl SdkReassembler {
                 got: frag.offset,
             });
         }
-        let end = frag.offset as usize + frag.xml_chunk.len();
-        if end > frag.total_len as usize {
+        // Widen to u64 so the bound check cannot wrap `usize` on 32-bit targets.
+        let end = frag.offset as u64 + frag.xml_chunk.len() as u64;
+        if end > frag.total_len as u64 {
             return Err(ProtoError::FragmentOverflow {
                 total: frag.total_len,
                 offset: frag.offset,
@@ -186,6 +195,30 @@ mod tests {
                 total: 3,
                 offset: 0,
                 chunk: 7
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_total_len_mismatch() {
+        let mut r = SdkReassembler::new();
+        let first = SdkFragment {
+            total_len: 10,
+            offset: 0,
+            xml_chunk: Bytes::from_static(b"hello"),
+        };
+        r.push(first).unwrap();
+        let bad = SdkFragment {
+            total_len: 12, // differs from the first fragment's 10
+            offset: 5,
+            xml_chunk: Bytes::from_static(b"world"),
+        };
+        let err = r.push(bad).unwrap_err();
+        assert!(matches!(
+            err,
+            ProtoError::FragmentTotalLenMismatch {
+                expected: 10,
+                got: 12
             }
         ));
     }
