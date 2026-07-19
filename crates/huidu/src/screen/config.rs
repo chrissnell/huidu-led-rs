@@ -186,7 +186,8 @@ pub struct TextConfig {
     pub effect: Effect,
     /// Exit animation.
     pub out_effect: Effect,
-    /// Animation speed, `1`–`10` (higher is faster).
+    /// Animation speed, `1`–`10` (higher is faster). Applies to both the entry
+    /// and exit effect — the SDK has one speed knob per text item.
     pub speed: u32,
     /// Seconds the text holds on screen once it has entered.
     pub hold_secs: u32,

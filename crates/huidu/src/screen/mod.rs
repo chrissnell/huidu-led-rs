@@ -29,7 +29,7 @@ mod config;
 
 pub use config::{ClockConfig, Color, Effect, HAlign, TextConfig, TimeFormat, VAlign};
 
-use huidu_proto::sdk::xml::XmlWriter;
+use huidu_proto::sdk::xml::{bool_str, XmlWriter};
 use huidu_proto::ProtoError;
 use std::time::Duration;
 
@@ -150,7 +150,8 @@ impl Program {
             }
             PlayControl::Duration(d) => {
                 // Deciseconds, matching the SDK's tenths-of-a-second timing unit.
-                let ds = (d.as_secs() * 10).to_string();
+                // Derive from millis so a sub-second `Duration` isn't truncated away.
+                let ds = (d.as_millis() / 100).to_string();
                 x.empty("playControl", &[("duration", &ds)])?;
             }
         }
@@ -355,15 +356,6 @@ fn write_clock(
     Ok(())
 }
 
-/// The lowercase boolean strings the firmware expects in attributes.
-fn bool_str(b: bool) -> &'static str {
-    if b {
-        "true"
-    } else {
-        "false"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,6 +432,16 @@ mod tests {
         screen.push_program(Program::new("p").with_duration_secs(10));
         let xml = screen.to_program_xml().unwrap();
         assert!(xml.contains("<playControl duration=\"100\"/>"));
+    }
+
+    #[test]
+    fn sub_second_duration_is_not_truncated() {
+        let mut screen = Screen::new();
+        let mut prog = Program::new("p");
+        prog.play = PlayControl::Duration(Duration::from_millis(1500));
+        screen.push_program(prog);
+        let xml = screen.to_program_xml().unwrap();
+        assert!(xml.contains("<playControl duration=\"15\"/>"), "xml: {xml}");
     }
 
     #[test]

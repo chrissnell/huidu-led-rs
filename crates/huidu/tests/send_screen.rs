@@ -6,7 +6,9 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::MockDevice;
-use huidu::{Area, Color, Device, DeviceConfig, DeviceInfo, Effect, Program, Screen, TextConfig};
+use huidu::{
+    Area, ClockConfig, Color, Device, DeviceConfig, DeviceInfo, Effect, Program, Screen, TextConfig,
+};
 use huidu_proto::sdk::{self};
 use huidu_proto::{SdkMethod, SdkResult};
 
@@ -108,6 +110,42 @@ async fn send_text_builds_a_full_screen_program() {
     );
     assert!(raw.contains("<string>Lobby</string>"), "raw: {raw}");
     assert!(raw.contains("color=\"#00ffff\""), "raw: {raw}");
+
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn send_screen_round_trips_a_clock_item() {
+    let (mock, captured) = capturing_mock(SdkResult::success()).await;
+    let device = Device::connect(mock.addr(), DeviceConfig::default())
+        .await
+        .expect("handshake");
+
+    let mut screen = Screen::new();
+    let mut prog = Program::new("clock");
+    let mut area = Area::full_screen(128, 64);
+    area.add_clock(ClockConfig {
+        show_time: true,
+        show_date: true,
+        time_color: Color::CYAN,
+        ..Default::default()
+    });
+    prog.push_area(area);
+    screen.push_program(prog);
+
+    device.send_screen(&screen).await.expect("send_screen");
+
+    let raw = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("AddProgram captured");
+    assert!(raw.contains("<clock guid=\"clock-0-0-0\""), "raw: {raw}");
+    assert!(
+        raw.contains("<time display=\"true\" format=\"0\" color=\"#00ffff\"/>"),
+        "raw: {raw}"
+    );
+    assert!(raw.contains("<date display=\"true\""), "raw: {raw}");
 
     device.close().await.expect("close");
 }
