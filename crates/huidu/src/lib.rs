@@ -19,6 +19,7 @@ mod commands;
 mod config;
 mod device;
 mod error;
+mod probe;
 mod transport;
 
 pub use config::DeviceConfig;
@@ -36,3 +37,7 @@ pub use huidu_proto::sdk::messages::network::{EthernetInfo, WifiInfo, WifiMode};
 pub use huidu_proto::sdk::messages::server::ServerInfo;
 pub use huidu_proto::sdk::messages::switch_time::{SwitchTimeInfo, SwitchTimeItem};
 pub use huidu_proto::sdk::messages::time::TimeInfo;
+
+/// Text layout for the HD2020 realtime-text send path
+/// ([`Device::send_realtime_text`]).
+pub use huidu_proto::hd2020::TextLayout;

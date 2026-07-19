@@ -1,6 +1,5 @@
-// Each integration-test binary that pulls in this module uses a different
-// subset of the builder; suppress dead-code noise for the parts a given
-// binary doesn't touch.
+// Shared across integration-test binaries; not every binary exercises every
+// builder knob, so cross-binary dead-code false positives are expected here.
 #![allow(dead_code)]
 
 //! Tier-2 test harness: a scripted device that speaks the real wire protocol
@@ -66,6 +65,10 @@ pub struct MockBuilder {
     /// Command code the version phase replies with; `None` reads the ask then
     /// drops the connection, to exercise a phase-1 failure.
     version_reply: Option<CmdCode>,
+    /// Payload carried on the `VersionReply` frame. The client classifies the
+    /// protocol from its lead byte (`DESIGN.md §6`); empty stays on the SDK 2.0
+    /// path.
+    version_payload: Bytes,
     /// Read `VersionAsk` then hang forever without replying, to exercise a
     /// phase-1 timeout.
     stall_version: bool,
@@ -81,6 +84,7 @@ impl MockBuilder {
             guid: "session-0001".into(),
             info: DeviceInfo::default(),
             version_reply: Some(CmdCode::VersionReply),
+            version_payload: Bytes::new(),
             stall_version: false,
             drop_on_heartbeat: false,
             responders: Vec::new(),
@@ -102,6 +106,13 @@ impl MockBuilder {
     /// Override the version-phase reply (`None` drops the connection instead).
     pub fn version_reply(mut self, cmd: Option<CmdCode>) -> Self {
         self.version_reply = cmd;
+        self
+    }
+
+    /// Set the payload the `VersionReply` carries, which the client uses to probe
+    /// the protocol (`DESIGN.md §6`).
+    pub fn version_payload(mut self, payload: impl Into<Bytes>) -> Self {
+        self.version_payload = payload.into();
         self
     }
 
@@ -163,6 +174,7 @@ impl MockBuilder {
         let responders = self.responders;
         let opts = ServeOpts {
             version_reply: self.version_reply,
+            version_payload: self.version_payload,
             stall_version: self.stall_version,
             drop_on_heartbeat: self.drop_on_heartbeat,
         };
@@ -184,6 +196,7 @@ impl MockBuilder {
 /// Behavioral switches for the server loop.
 struct ServeOpts {
     version_reply: Option<CmdCode>,
+    version_payload: Bytes,
     stall_version: bool,
     drop_on_heartbeat: bool,
 }
@@ -205,7 +218,8 @@ async fn serve(
                 }
                 match opts.version_reply {
                     Some(cmd) => {
-                        if conn.send(OwnedFrame::new(cmd, Bytes::new())).await.is_err() {
+                        let reply = OwnedFrame::new(cmd, opts.version_payload.clone());
+                        if conn.send(reply).await.is_err() {
                             return;
                         }
                     }
