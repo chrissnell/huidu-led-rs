@@ -1,0 +1,11 @@
+[package]
+name = "huidu-proto"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "Wire framing and codec for the Huidu SDK 2.0 / HD2020 LED controller protocol. No I/O."
+
+[dependencies]
+bytes = "1"
+thiserror = "1"
+tokio-util = { version = "0.7", features = ["codec"] }
