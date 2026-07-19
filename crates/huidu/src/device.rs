@@ -60,7 +60,11 @@ impl Device {
     /// failure drops the connection and returns [`Error::Handshake`] tagged with
     /// the failing phase. No auto-reconnect.
     pub async fn connect(addr: SocketAddr, config: DeviceConfig) -> Result<Self> {
-        let stream = TcpStream::connect(addr).await?;
+        // Bound the TCP connect by the same deadline as a round-trip, so an
+        // unreachable device fails fast instead of hanging on the OS default.
+        let stream = tokio::time::timeout(config.timeout, TcpStream::connect(addr))
+            .await
+            .map_err(|_| Error::Timeout(config.timeout))??;
         let mut conn = Framed::new(stream, HuiduCodec);
         tracing::debug!(%addr, "connected; starting handshake");
 
@@ -141,6 +145,13 @@ impl Device {
     /// The wire protocol this connection speaks.
     pub fn protocol(&self) -> ProtocolKind {
         self.inner.protocol
+    }
+
+    /// Whether the connection has been poisoned by a cancelled or failed
+    /// round-trip (`DESIGN.md §4.4`). Once poisoned, every command returns
+    /// [`Error::Poisoned`] and the caller must reconnect.
+    pub fn is_poisoned(&self) -> bool {
+        self.inner.poisoned.load(Ordering::SeqCst)
     }
 
     /// Send an SDK XML request and return the reassembled reply XML. The command

@@ -59,6 +59,38 @@ async fn version_phase_wrong_code_fails_at_phase_1() {
 }
 
 #[tokio::test]
+async fn version_phase_dropped_connection_fails_at_phase_1() {
+    // The device reads VersionAsk then closes the socket without replying.
+    let mock = MockDevice::builder().version_reply(None).spawn().await;
+
+    let err = Device::connect(mock.addr(), DeviceConfig::default())
+        .await
+        .expect_err("phase 1 must fail");
+    assert!(
+        matches!(err, Error::Handshake { phase: 1, .. }),
+        "expected phase-1 handshake error, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn version_phase_stall_times_out_at_phase_1() {
+    // The device accepts but never answers VersionAsk; the connect deadline fires.
+    let mock = MockDevice::builder().stall_version().spawn().await;
+    let config = DeviceConfig {
+        timeout: Duration::from_millis(80),
+        ..Default::default()
+    };
+
+    let err = Device::connect(mock.addr(), config)
+        .await
+        .expect_err("phase 1 must time out");
+    assert!(
+        matches!(err, Error::Handshake { phase: 1, .. }),
+        "expected phase-1 handshake error, got {err:?}"
+    );
+}
+
+#[tokio::test]
 async fn get_if_version_device_error_fails_at_phase_2() {
     let mock = MockDevice::builder()
         .respond(SdkMethod::GetIfVersion, |_| {
@@ -127,5 +159,33 @@ async fn heartbeat_pings_the_device() {
         mock.heartbeats()
     );
 
+    device.close().await.expect("close");
+}
+
+#[tokio::test]
+async fn heartbeat_failure_poisons_the_connection() {
+    // The device completes the handshake, then drops on the first heartbeat.
+    let mock = MockDevice::builder().drop_on_heartbeat().spawn().await;
+    let config = DeviceConfig {
+        heartbeat: Duration::from_millis(40),
+        ..Default::default()
+    };
+
+    let device = Device::connect(mock.addr(), config)
+        .await
+        .expect("handshake");
+    assert!(
+        !device.is_poisoned(),
+        "fresh connection must not be poisoned"
+    );
+
+    // Wait past a heartbeat interval so the failed ping poisons the connection.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        device.is_poisoned(),
+        "a failed heartbeat must poison the connection"
+    );
+
+    // Close is still clean on a poisoned connection.
     device.close().await.expect("close");
 }

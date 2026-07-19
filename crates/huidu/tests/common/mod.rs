@@ -61,6 +61,12 @@ pub struct MockBuilder {
     /// Command code the version phase replies with; `None` reads the ask then
     /// drops the connection, to exercise a phase-1 failure.
     version_reply: Option<CmdCode>,
+    /// Read `VersionAsk` then hang forever without replying, to exercise a
+    /// phase-1 timeout.
+    stall_version: bool,
+    /// After the handshake, drop the connection on the next heartbeat instead
+    /// of answering, to exercise the heartbeat-failure poison path.
+    drop_on_heartbeat: bool,
     responders: Vec<(SdkMethod, Responder)>,
 }
 
@@ -70,6 +76,8 @@ impl MockBuilder {
             guid: "session-0001".into(),
             info: DeviceInfo::default(),
             version_reply: Some(CmdCode::VersionReply),
+            stall_version: false,
+            drop_on_heartbeat: false,
             responders: Vec::new(),
         }
     }
@@ -89,6 +97,20 @@ impl MockBuilder {
     /// Override the version-phase reply (`None` drops the connection instead).
     pub fn version_reply(mut self, cmd: Option<CmdCode>) -> Self {
         self.version_reply = cmd;
+        self
+    }
+
+    /// Hang after reading `VersionAsk` without replying, to exercise a phase-1
+    /// timeout.
+    pub fn stall_version(mut self) -> Self {
+        self.stall_version = true;
+        self
+    }
+
+    /// Drop the connection on the first heartbeat rather than answering, to
+    /// exercise the heartbeat-failure poison path.
+    pub fn drop_on_heartbeat(mut self) -> Self {
+        self.drop_on_heartbeat = true;
         self
     }
 
@@ -134,11 +156,15 @@ impl MockBuilder {
         let heartbeats = Arc::new(AtomicUsize::new(0));
 
         let responders = self.responders;
-        let version_reply = self.version_reply;
+        let opts = ServeOpts {
+            version_reply: self.version_reply,
+            stall_version: self.stall_version,
+            drop_on_heartbeat: self.drop_on_heartbeat,
+        };
         let hb = heartbeats.clone();
         let handle = tokio::spawn(async move {
             if let Ok((sock, _)) = listener.accept().await {
-                serve(Framed::new(sock, HuiduCodec), version_reply, responders, hb).await;
+                serve(Framed::new(sock, HuiduCodec), opts, responders, hb).await;
             }
         });
 
@@ -150,10 +176,17 @@ impl MockBuilder {
     }
 }
 
+/// Behavioral switches for the server loop.
+struct ServeOpts {
+    version_reply: Option<CmdCode>,
+    stall_version: bool,
+    drop_on_heartbeat: bool,
+}
+
 /// The server loop: dispatch each frame until the client disconnects.
 async fn serve(
     mut conn: Conn,
-    version_reply: Option<CmdCode>,
+    opts: ServeOpts,
     responders: Vec<(SdkMethod, Responder)>,
     heartbeats: Arc<AtomicUsize>,
 ) {
@@ -161,16 +194,24 @@ async fn serve(
     while let Some(frame) = conn.next().await {
         let Ok(frame) = frame else { return };
         match frame.cmd {
-            CmdCode::VersionAsk => match version_reply {
-                Some(cmd) => {
-                    if conn.send(OwnedFrame::new(cmd, Bytes::new())).await.is_err() {
-                        return;
-                    }
+            CmdCode::VersionAsk => {
+                if opts.stall_version {
+                    std::future::pending::<()>().await;
                 }
-                None => return,
-            },
+                match opts.version_reply {
+                    Some(cmd) => {
+                        if conn.send(OwnedFrame::new(cmd, Bytes::new())).await.is_err() {
+                            return;
+                        }
+                    }
+                    None => return,
+                }
+            }
             CmdCode::Heartbeat => {
                 heartbeats.fetch_add(1, Ordering::SeqCst);
+                if opts.drop_on_heartbeat {
+                    return;
+                }
                 let reply = OwnedFrame::new(CmdCode::HeartbeatReply, Bytes::new());
                 if conn.send(reply).await.is_err() {
                     return;
