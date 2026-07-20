@@ -22,6 +22,7 @@ mod error;
 mod probe;
 mod screen;
 mod transport;
+mod upload;
 
 pub use config::DeviceConfig;
 pub use device::Device;
@@ -30,6 +31,7 @@ pub use screen::{
     Area, ClockConfig, Color, Effect, HAlign, Item, PlayControl, Program, Screen, TextConfig,
     TimeFormat, VAlign,
 };
+pub use upload::UploadProgress;
 
 /// Typed request/reply bodies the command surface accepts and returns, re-exported
 /// so callers never reach into `huidu_proto::sdk::messages`.

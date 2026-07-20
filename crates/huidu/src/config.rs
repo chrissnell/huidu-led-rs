@@ -22,6 +22,9 @@ pub struct DeviceConfig {
     pub heartbeat: Duration,
     /// Maximum bytes per file-upload chunk (used by the upload subsystem).
     pub upload_chunk_size: usize,
+    /// How many times a single upload chunk is re-sent after a retryable
+    /// (non-zero) device reply before the upload fails.
+    pub upload_retries: u32,
     /// Maximum XML bytes per SDK fragment before the payload is split.
     pub sdk_fragment_size: usize,
 }
@@ -32,6 +35,7 @@ impl Default for DeviceConfig {
             timeout: Duration::from_secs(5),
             heartbeat: Duration::from_secs(30),
             upload_chunk_size: 8000,
+            upload_retries: 3,
             sdk_fragment_size: 8000,
         }
     }
