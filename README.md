@@ -99,6 +99,21 @@ device.send_screen(&screen).await?;
 Configs are plain structs with `Default`. Use struct-update syntax to override
 what you care about. No `WithFoo`/`WithBar` builder soup.
 
+### Upload a file with progress
+
+```rust
+use futures::StreamExt;
+
+let mut progress = device.upload_file("/path/to/logo.jpg").await?;
+while let Some(update) = progress.next().await {
+    let p = update?;
+    println!("{:.0}% ({}/{})", p.fraction() * 100.0, p.bytes_sent, p.total_bytes);
+}
+```
+
+The MD5 is streamed from disk before the transfer starts, the device's resume
+offset is honored, and dropping the stream cancels the upload.
+
 ### Adjust the device
 
 ```rust
@@ -122,6 +137,7 @@ Parity with the Go reference implementation's SDK 2.0 command set.
 - Screen on/off scheduling (switch-time table)
 - Network — Ethernet (static/DHCP) and WiFi (AP + Station)
 - Time sync — set time, timezone, DST
+- File upload — chunked, MD5-verified, resume-capable, with a progress stream
 - File management — list and delete
 - Boot logo — get, set by name, clear
 - TCP server config
@@ -141,9 +157,9 @@ caller reconnects) and CLI binaries — both left for a later `huidu-cli` crate.
 - **SDK envelope:** command 0x2003 wraps XML with a `<total_len:u32le,
   offset:u32le>` header, fragmenting XML payloads > 8000 bytes and reassembling
   them on receive.
-- **File transfer:** frame codes for the three-phase upload state machine —
-  `FileStartAsk` (0x8001) → `FileContentAsk` (0x8003) → `FileEndAsk` (0x8005) —
-  are defined in `huidu-proto`.
+- **File upload:** three-phase state machine — `FileStartAsk` (0x8001) →
+  chunked `FileContentAsk` (0x8003) → `FileEndAsk` (0x8005) — with MD5
+  verification and resume-on-partial support.
 - **Heartbeat:** periodic 0x2005 pings keep the session alive; device replies
   with 0x2006.
 
