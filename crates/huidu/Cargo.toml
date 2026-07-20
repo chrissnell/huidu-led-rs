@@ -7,12 +7,15 @@ description = "Async tokio client for Huidu LED controllers: handshake, heartbea
 
 [dependencies]
 huidu-proto = { path = "../huidu-proto" }
+async-stream = "0.3"
 bytes = "1"
 futures = "0.3"
+md-5 = "0.10"
 thiserror = "1"
-tokio = { version = "1", features = ["net", "rt", "time", "sync", "macros", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "net", "rt", "time", "sync", "macros"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 
 [dev-dependencies]
+md-5 = "0.10"
 tokio = { version = "1", features = ["net", "rt", "time", "sync", "macros", "rt-multi-thread", "io-util"] }

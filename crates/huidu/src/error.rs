@@ -60,6 +60,18 @@ pub enum Error {
     /// A round-trip did not complete within `DeviceConfig::timeout`.
     #[error("timeout after {0:?}")]
     Timeout(Duration),
+
+    /// A file-upload frame was answered with a non-zero result code. `stage`
+    /// names the failing step (`start`, `content`, or `end`); for a content
+    /// chunk the failure is reported after `DeviceConfig::upload_retries`
+    /// retries are exhausted (`DESIGN.md §8`).
+    #[error("file upload rejected at {stage}: device returned code {code}")]
+    Upload {
+        /// Which step of the transfer the device rejected.
+        stage: &'static str,
+        /// The non-zero result code the device sent back.
+        code: u16,
+    },
 }
 
 /// Result specialized to the client's [`Error`].
